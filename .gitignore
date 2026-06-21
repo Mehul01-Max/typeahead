@@ -1,0 +1,11 @@
+node_modules/
+.env
+.DS_Store
+*.log
+
+# Build output
+client/dist/
+
+# AI context files - do not push
+SST-2028_HLD101_Assignment_Search_Typeahead.md
+EXPLANATION.md
