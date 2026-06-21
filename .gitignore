@@ -4,7 +4,7 @@ node_modules/
 *.log
 
 # Build output
-client/dist/
+frontend/dist/
 
 # AI context files - do not push
 SST-2028_HLD101_Assignment_Search_Typeahead.md

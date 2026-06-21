@@ -1,6 +1,5 @@
 import './env.js';
 import express from 'express';
-import path from 'path';
 
 import * as db from './db.js';
 import cache from './cache.js';
@@ -27,8 +26,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// serve react build (production)
-app.use(express.static(path.join(import.meta.dirname, '..', 'client', 'dist')));
+// health check
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'search-typeahead-api' });
+});
 
 // trending endpoint
 app.get('/trending', (req, res) => {
@@ -50,11 +51,6 @@ app.get('/stats', (req, res) => {
 app.use('/suggest', suggestRoute);
 app.use('/search', searchRoute);
 app.use('/cache/debug', cacheDebugRoute);
-
-// catch-all: serve react app for client-side routing
-app.get('*', (req, res) => {
-  res.sendFile(path.join(import.meta.dirname, '..', 'client', 'dist', 'index.html'));
-});
 
 // start DB, cache and servers
 await db.connect();

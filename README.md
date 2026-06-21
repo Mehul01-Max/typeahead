@@ -2,108 +2,90 @@
 
 A search typeahead system that suggests popular queries as users type, with distributed caching, trending searches, and batch writes.
 
+## Project Structure
+
+```
+├── frontend/          # React + Vite client (deployed on Vercel)
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── SearchBox.jsx
+│   │   │   ├── StatsPanel.jsx
+│   │   │   └── TrendingSection.jsx
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   └── package.json
+│
+├── backend/           # Express.js API server
+│   ├── routes/
+│   │   ├── suggest.js
+│   │   ├── search.js
+│   │   └── cacheDebug.js
+│   ├── scripts/
+│   │   └── seed.js
+│   ├── index.js
+│   ├── db.js
+│   ├── cache.js
+│   ├── consistentHash.js
+│   ├── batchWriter.js
+│   ├── trending.js
+│   ├── logger.js
+│   ├── package.json
+│   └── docker-compose.yml
+│
+└── README.md
+```
+
 ## Architecture
 
 ```
 ┌────────────────┐       ┌───────────────────────────────────────────┐
 │   React UI     │──────▶│              Express Server               │
-│  (Vite build)  │       │                                           │
+│  (Vercel)      │       │                                           │
 └────────────────┘       │  ┌─────────┐  ┌────────┐  ┌───────────┐  │
                          │  │  Trie   │  │Trending│  │  Batch    │  │
                          │  │(in-mem) │  │Tracker │  │  Writer   │  │
                          │  └────┬────┘  └────────┘  └─────┬─────┘  │
                          │       │                         │        │
                          │  ┌────▼────────────────┐  ┌─────▼─────┐  │
-                         │  │  Redis Cache         │  │  MongoDB  │  │
+                         │  │  Redis Cache         │  │PostgreSQL │  │
                          │  │  (Consistent Hash)   │  │ (queries) │  │
                          │  │  3 logical nodes     │  │           │  │
                          │  └─────────────────────┘  └───────────┘  │
                          └───────────────────────────────────────────┘
 ```
 
-### Data Flow
+## Setup
 
-1. **Suggestion Request:** Client → Cache (Redis) → Trie (in-memory) → Response
-2. **Search Submission:** Client → Batch Buffer → (periodic flush) → MongoDB → Trie update → Cache invalidation
-3. **Trending:** Recent searches tracked in time-bucketed windows with exponential decay scoring
-
-## Tech Stack
-
-| Component | Technology | Justification |
-|-----------|-----------|---------------|
-| Backend | Node.js + Express | Event-driven, non-blocking I/O for low-latency requests |
-| Database | MongoDB | Document store with flexible schema, atomic `$inc` for count updates, regex prefix queries |
-| Cache | Redis | Sub-millisecond reads, native TTL, industry-standard caching layer |
-| Frontend | React (Vite) | Component-based UI with efficient re-rendering |
-| Dataset | unigram_freq.csv | 333,000+ real English word frequencies from Google Books Ngrams |
-
-## Setup & Run
-
-### Prerequisites
-- Node.js 18+
-- Docker
-
-### Environment Configuration
-
-Copy the example env file and update values as needed:
+### Frontend (Vercel)
 
 ```bash
-cp .env.example .env
+cd frontend
+npm install
+npm run dev       # Local development at http://localhost:5173
+```
+
+Set `VITE_API_URL` in Vercel environment variables to point to your deployed backend URL.
+
+### Backend
+
+```bash
+cd backend
+cp .env.example .env    # Edit with your DB/Redis credentials
+npm install
+npm run seed            # Seed the database (333k queries)
+npm run dev             # Development with auto-reload
+npm start               # Production
 ```
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | Server port |
-| `MONGO_URL` | `mongodb://localhost:27017` | MongoDB connection string |
-| `MONGO_DB_NAME` | `typeahead` | MongoDB database name |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
+| `DATABASE_URL` | — | PostgreSQL connection string |
+| `REDIS_URL` | — | Redis connection string |
 | `CACHE_TTL_SECONDS` | `60` | Cache entry TTL |
 | `CACHE_NODE_COUNT` | `3` | Number of logical cache nodes |
 | `BATCH_FLUSH_INTERVAL_MS` | `10000` | Batch writer flush interval |
 | `BATCH_MAX_BUFFER_SIZE` | `50` | Max buffer before forced flush |
-
-For cloud-hosted MongoDB/Redis (e.g., MongoDB Atlas + Redis Cloud):
-```bash
-MONGO_URL=mongodb+srv://user:pass@cluster.mongodb.net
-REDIS_URL=redis://user:pass@redis-host:6379
-```
-
-### Steps
-
-```bash
-# 1. Start MongoDB and Redis (local Docker)
-docker-compose up -d
-
-# 2. Copy env file
-cp .env.example .env
-
-# 3. Install dependencies
-npm install
-cd client && npm install && cd ..
-
-# 4. Seed the database (loads 333k queries)
-npm run seed
-
-# 5. Build the React frontend
-cd client && npm run build && cd ..
-
-# 6. Start the server
-npm start
-# Server runs on http://localhost:3000
-```
-
-### Development Mode
-
-Run the backend and React dev server separately:
-
-```bash
-# Terminal 1: Backend
-npm start
-
-# Terminal 2: React dev server (with hot reload)
-cd client && npm run dev
-# Opens on http://localhost:5173 (proxies API calls to :3000)
-```
 
 ## API Documentation
 
@@ -144,26 +126,6 @@ POST /search
 
 Shows cache routing info via consistent hashing.
 
-**Request:** `GET /cache/debug?prefix=iph`
-
-**Response:**
-```json
-{
-  "cacheDebug": {
-    "assignedNode": "node2",
-    "redisKey": "node2:iph",
-    "cacheStatus": "HIT",
-    "hashInfo": {
-      "hashValue": 2952454930,
-      "totalNodes": 3,
-      "totalVirtualNodes": 450
-    }
-  },
-  "cacheStats": { "hits": 5, "misses": 2, "hitRate": "71.4%" },
-  "batchWriterStats": { "writeReduction": "80.0%" }
-}
-```
-
 ### GET /trending
 
 Returns currently trending queries based on recent activity.
@@ -174,9 +136,9 @@ Returns system-wide stats: cache hit rate, latency p50/p95, batch writer metrics
 
 ## Design Choices & Trade-offs
 
-### Why Trie + MongoDB (not just MongoDB)?
+### Why Trie + PostgreSQL (not just PostgreSQL)?
 
-MongoDB regex queries (`^prefix`) scan even with indexes — O(n) on large datasets. The Trie provides O(prefix_length) lookups with precomputed top-10 at each node. MongoDB serves as the persistent source of truth, Trie is the hot in-memory path.
+PostgreSQL `LIKE 'prefix%'` queries scan even with indexes — O(n) on large datasets. The Trie provides O(prefix_length) lookups with precomputed top-10 at each node. PostgreSQL serves as the persistent source of truth, Trie is the hot in-memory path.
 
 **Trade-off:** Trie uses memory (~200MB for 333k entries). Acceptable for a single-server demo.
 
@@ -208,11 +170,10 @@ MongoDB regex queries (`^prefix`) scan even with indexes — O(n) on large datas
 | Suggestion latency (trie lookup) | ~3-15ms |
 | Cache hit rate | Increases with usage (60s TTL) |
 | Dataset size | 333,307 queries |
-| Trie build time | ~25-30 seconds at startup |
 | Batch write reduction | Depends on search frequency; typically 60-90% fewer DB writes |
 
 ## Dataset
 
 **Source:** `unigram_freq.csv` — English word frequencies derived from Google Books Ngram Viewer. Contains 333,333 entries with word and occurrence count.
 
-**Loading:** The `scripts/seed.js` script reads the CSV, filters out single-character and numeric-only entries, and bulk-inserts into MongoDB with indexes on `query` and `count`.
+**Loading:** The `scripts/seed.js` script reads the CSV, filters out single-character and numeric-only entries, and bulk-inserts into PostgreSQL with indexes on `query` and `count`.
