@@ -1,101 +1,144 @@
 # Search Typeahead System
 
-A search typeahead system that suggests popular queries as users type, with distributed caching, trending searches, and batch writes.
+A production-grade, highly optimized Search Typeahead autocomplete system built with **React** (Vite), **Express.js**, **PostgreSQL**, and **Redis**. The system supports low-latency autocomplete suggestions, distributed caching using consistent hashing, real-time trending searches with exponential time-decay, and batch writes to minimize database pressure.
 
-## Project Structure
+---
+
+## 🚀 System Architecture
+
+The architecture is designed to handle high-throughput reads (typeahead queries) and write-heavy workloads (search submissions) efficiently:
 
 ```
-├── frontend/          # React + Vite client (deployed on Vercel)
+                  ┌────────────────────────────────────────┐
+                  │               React Client             │
+                  │              (Vite, Debounced)         │
+                  └───────────────────┬────────────────────┘
+                                      │
+                       HTTP GET       │      HTTP POST
+                      /suggest        │      /search
+                                      ▼
+                  ┌────────────────────────────────────────┐
+                  │             Express Server             │
+                  │                                        │
+                  │  ┌──────────────┐      ┌────────────┐  │
+                  │  │   Trending   │      │   Batch    │  │
+                  │  │   Tracker    │      │   Writer   │  │
+                  │  └──────┬───────┘      └─────┬──────┘  │
+                  └─────────┼────────────────────┼─────────┘
+                            │ (Exp Decay)        │ (Bulk upsert)
+                            ▼                    ▼
+             ┌──────────────────────────────┐  ┌──────────────────┐
+             │      Redis Cache Node        │  │    PostgreSQL    │
+             │   (Consistent Hash Ring)     │  │  (Primary Store) │
+             │   node0  │  node1  │  node2  │  │  - Queries Table │
+             └──────────────────────────────┘  └──────────────────┘
+```
+
+### Architectural Highlights
+- **Consistent Hashing**: Suggestion cache keys are distributed across a ring of $3$ logical cache nodes (`node0`, `node1`, `node2`) using an MD5-based hashing ring with $150$ virtual nodes per physical node to prevent hotspotting.
+- **Cache Invalidation**: On a batch flush, cache keys for all prefixes of modified queries are deleted (e.g., for query "java", cache keys `"j"`, `"ja"`, `"jav"`, `"java"` are invalidated).
+- **Time-Decayed Trending**: Trending score incorporates historical query counts and real-time recency based on 1-minute time buckets over a 60-minute sliding window.
+- **Batch Writer**: Search events are aggregated in an in-memory buffer and flushed as a single multi-row upsert transaction to PostgreSQL every 10 seconds or when the buffer size reaches 50 unique queries.
+
+---
+
+## 📁 Project Structure
+
+```
+├── frontend/             # React + Vite UI client
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── SearchBox.jsx
-│   │   │   ├── StatsPanel.jsx
-│   │   │   └── TrendingSection.jsx
+│   │   │   ├── SearchBox.jsx        # Input box with keyboard navigation & debounced suggestions
+│   │   │   ├── StatsPanel.jsx       # Real-time dashboard showing hit rates, latency, & batch stats
+│   │   │   └── TrendingSection.jsx  # Display of real-time trending searches
 │   │   ├── App.jsx
+│   │   ├── App.css
 │   │   └── main.jsx
 │   └── package.json
 │
-├── backend/           # Express.js API server
+├── backend/              # Express.js API Server
 │   ├── routes/
-│   │   ├── suggest.js
-│   │   ├── search.js
-│   │   └── cacheDebug.js
+│   │   ├── suggest.js               # Route for autocomplete recommendations
+│   │   ├── search.js                # Route for submitting search queries
+│   │   └── cacheDebug.js            # Route for inspecting consistent hash routing
 │   ├── scripts/
-│   │   └── seed.js
-│   ├── index.js
-│   ├── db.js
-│   ├── cache.js
-│   ├── consistentHash.js
-│   ├── batchWriter.js
-│   ├── trending.js
-│   ├── logger.js
-│   ├── package.json
-│   └── docker-compose.yml
+│   │   └── seed.js                  # Ingestion script for 333k unigram queries
+│   ├── batchWriter.js               # In-memory accumulator and database batching engine
+│   ├── cache.js                     # Cache controller with consistent hashing integration
+│   ├── consistentHash.js            # Custom consistent hashing ring class
+│   ├── db.js                        # PostgreSQL database pool config and query models
+│   ├── docker-compose.yml           # Redis container setup
+│   ├── env.js                       # Environment variable loader
+│   ├── index.js                     # Server entry point
+│   ├── logger.js                    # Custom latency tracker middleware
+│   ├── trending.js                  # Recency ranking & exponential time-decay engine
+│   ├── unigram_freq.csv             # English word frequencies (333,333 entries)
+│   └── package.json
 │
 └── README.md
 ```
 
-## Architecture
+---
 
-```
-┌────────────────┐       ┌───────────────────────────────────────────┐
-│   React UI     │──────▶│              Express Server               │
-│  (Vercel)      │       │                                           │
-└────────────────┘       │  ┌─────────┐  ┌────────┐  ┌───────────┐  │
-                         │  │  Trie   │  │Trending│  │  Batch    │  │
-                         │  │(in-mem) │  │Tracker │  │  Writer   │  │
-                         │  └────┬────┘  └────────┘  └─────┬─────┘  │
-                         │       │                         │        │
-                         │  ┌────▼────────────────┐  ┌─────▼─────┐  │
-                         │  │  Redis Cache         │  │PostgreSQL │  │
-                         │  │  (Consistent Hash)   │  │ (queries) │  │
-                         │  │  3 logical nodes     │  │           │  │
-                         │  └─────────────────────┘  └───────────┘  │
-                         └───────────────────────────────────────────┘
-```
+## 🛠️ Setup and Installation
 
-## Setup
+### Prerequisites
+- **Node.js** (v18+)
+- **Docker** (for Redis cache container)
+- **PostgreSQL** instance (Local or cloud hosted e.g. Neon DB)
 
-### Frontend (Vercel)
-
-```bash
-cd frontend
-npm install
-npm run dev       # Local development at http://localhost:5173
-```
-
-Set `VITE_API_URL` in Vercel environment variables to point to your deployed backend URL.
-
-### Backend
-
+### 1. Database & Cache Infrastructure
+Start the Redis cache service using Docker:
 ```bash
 cd backend
-cp .env.example .env    # Edit with your DB/Redis credentials
-npm install
-npm run seed            # Seed the database (333k queries)
-npm run dev             # Development with auto-reload
-npm start               # Production
+docker compose up -d
 ```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3000` | Server port |
-| `DATABASE_URL` | — | PostgreSQL connection string |
-| `REDIS_URL` | — | Redis connection string |
-| `CACHE_TTL_SECONDS` | `60` | Cache entry TTL |
-| `CACHE_NODE_COUNT` | `3` | Number of logical cache nodes |
-| `BATCH_FLUSH_INTERVAL_MS` | `10000` | Batch writer flush interval |
-| `BATCH_MAX_BUFFER_SIZE` | `50` | Max buffer before forced flush |
+### 2. Backend Server Setup
+Configure the environment variables:
+```bash
+cp .env.example .env
+```
+Edit the `.env` file with your credentials:
+```env
+PORT=3000
+DATABASE_URL=postgresql://<user>:<password>@<host>/<dbname>?sslmode=require
+REDIS_URL=redis://localhost:6379
+BATCH_FLUSH_INTERVAL_MS=10000
+BATCH_MAX_BUFFER_SIZE=50
+CACHE_TTL_SECONDS=60
+CACHE_NODE_COUNT=3
+```
 
-## API Documentation
+Install backend dependencies and seed the database with the dataset (~333,307 queries loaded):
+```bash
+npm install
+npm run seed
+```
 
-### GET /suggest?q=\<prefix\>
+Start the backend server in development mode:
+```bash
+npm run dev
+```
 
-Returns top 10 suggestions matching the prefix, sorted by count (with trending boost).
+### 3. Frontend Client Setup
+Install frontend dependencies and start the development server:
+```bash
+cd ../frontend
+npm install
+npm run dev
+```
+By default, the client runs at `http://localhost:5173`. Make sure the backend port matches the API endpoint.
 
-**Request:** `GET /suggest?q=java`
+---
 
-**Response:**
+## 🔌 API Documentation
+
+### 1. Get Suggestions
+Returns up to 10 prefix-matching suggestions sorted by search counts (plus trending boost, if applicable).
+- **Endpoint**: `GET /suggest?q=<prefix>`
+- **Sample Request**: `GET http://localhost:3000/suggest?q=jav`
+- **Sample Response**:
 ```json
 {
   "suggestions": [
@@ -103,77 +146,114 @@ Returns top 10 suggestions matching the prefix, sorted by count (with trending b
     { "query": "javascript", "count": 25766226, "trendingScore": 25766226 }
   ],
   "source": "cache",
-  "latencyMs": 2.65
+  "latencyMs": 1.45
 }
 ```
 
-### POST /search
-
-Submits a search query. Adds to batch buffer and trending tracker.
-
-**Request:**
+### 2. Submit Search Query
+Records search execution. Increments count, updates recency, and schedules database syncing via the Batch Writer.
+- **Endpoint**: `POST /search`
+- **Payload**:
 ```json
-POST /search
-{ "query": "machine learning" }
+{
+  "query": "consistent hashing"
+}
+```
+- **Response**:
+```json
+{
+  "message": "Searched",
+  "query": "consistent hashing"
+}
 ```
 
-**Response:**
+### 3. Cache Debug Routing
+Inspects which logical cache node is mapped to the prefix using Consistent Hashing.
+- **Endpoint**: `GET /cache/debug?prefix=<prefix>`
+- **Sample Request**: `GET http://localhost:3000/cache/debug?prefix=jav`
+- **Sample Response**:
 ```json
-{ "message": "Searched", "query": "machine learning" }
+{
+  "cacheDebug": {
+    "prefix": "jav",
+    "assignedNode": "node1",
+    "redisKey": "node1:jav",
+    "cacheStatus": "HIT",
+    "ttlRemaining": 48,
+    "hashInfo": {
+      "key": "jav",
+      "hashValue": 3121545648,
+      "assignedNode": "node1",
+      "totalNodes": 3,
+      "totalVirtualNodes": 450,
+      "allNodes": ["node0", "node1", "node2"]
+    }
+  }
+}
 ```
 
-### GET /cache/debug?prefix=\<prefix\>
+### 4. Fetch System Statistics
+Returns latency percentiles (p50/p95), cache metrics, and batch writer compression metrics.
+- **Endpoint**: `GET /stats`
 
-Shows cache routing info via consistent hashing.
+---
 
-### GET /trending
+## 🧠 Design Choices & Key Implementations
 
-Returns currently trending queries based on recent activity.
+### 1. Distributed Cache via Consistent Hashing
+Instead of standard modular hashing (`hash(key) % N`), which triggers $100\%$ cache invalidation when nodes are added or removed, a custom **Consistent Hashing Ring** was built:
+* **Virtual Nodes**: Each physical node maps to 150 virtual nodes on a 32-bit ring.
+* **Distribution Balance**: Virtual nodes distribute keys evenly, avoiding hot spots.
+* **Binary Search Routing**: `getNode(key)` performs binary search ($O(\log(\text{nodes} \times \text{replicas}))$) to map the hashed key to its clockwise neighbor node prefix.
 
-### GET /stats
+### 2. Exponential Time-Decay Trending Engine
+To ensure recency influences autocomplete suggestions without permanently over-ranking historic terms, searches are tracked in 1-minute time buckets over a 60-minute sliding window:
+$$\text{trending\_score} = \text{base\_count} + \sum (\text{recent\_count} \times e^{-\lambda \times \text{age\_minutes}} \times 10000)$$
+* **Decay Parameter ($\lambda = 0.05$)**: Corresponds to a half-life of ~14 minutes.
+* **Cleanup Loop**: A background thread clears buckets older than 1 hour.
+* **Staleness Protection**: Since trending calculations are performed on cache misses, stale rankings are evicted through active cache invalidations on search flushes.
 
-Returns system-wide stats: cache hit rate, latency p50/p95, batch writer metrics.
+### 3. Batch Writer (Write Reduction Engine)
+Every `/search` updates the query counts. Doing synchronous database writes for every search would choke the database.
+* **Aggregation**: If "iphone" is searched 100 times in 10 seconds, it's combined into `count = count + 100`.
+* **Periodic & Bound Flushes**: The buffer flushes either every 10 seconds or when the queue hits 50 unique queries, executing a single PostgreSQL transaction (`BEGIN ... COMMIT`) to apply updates.
 
-## Design Choices & Trade-offs
+---
 
-### Why Trie + PostgreSQL (not just PostgreSQL)?
+## 🖼️ Application Screenshots & UI Flow
 
-PostgreSQL `LIKE 'prefix%'` queries scan even with indexes — O(n) on large datasets. The Trie provides O(prefix_length) lookups with precomputed top-10 at each node. PostgreSQL serves as the persistent source of truth, Trie is the hot in-memory path.
+Below are actual screenshots from the running application:
 
-**Trade-off:** Trie uses memory (~200MB for 333k entries). Acceptable for a single-server demo.
+### 1. Autocomplete Search Box with Keyboard Navigation & Performance Overlay
+Displays instant autocomplete suggestions from the seeded 333k unigram database. It also displays the latency and response source (Cache Hit vs. Database Fallback) in real-time.
 
-### Why Consistent Hashing for Cache?
+![Autocomplete Search and Latency Overlay](./Screenshot%202026-06-22%20at%2001.39.39.png)
 
-- Adding/removing a cache node remaps only ~1/N keys (vs rehashing everything with modular hashing)
-- 150 virtual nodes per physical node ensures even key distribution
-- Each "logical node" uses a Redis key prefix (e.g., `node0:java`). In production, these would be separate Redis instances.
+### 2. Real-time Decay-based Trending Searches Sidebar
+Displays the active trending list. As searches are performed, queries bubble up to the top of the trending panel. This list is dynamically weighted using the time-decay factor:
+$$\text{trending\_score} = \text{base\_count} + \sum (\text{recent\_count} \times e^{-0.05 \times \text{age\_minutes}} \times 10000)$$
 
-### Trending: Exponential Time-Decay
+![Decay-based Trending Sidebar](./Screenshot%202026-06-22%20at%2001.39.49.png)
 
-**Formula:** `trending_score = base_count + Σ(recent_count × e^(-0.05 × age_minutes))`
+### 3. Integrated Diagnostics & Performance Panel
+Tracks metrics including cache hit rate, p50 and p95 request latencies, and batch writer efficiency (percentage of writes saved via aggregation).
 
-- Recent searches get a boost that decays with a half-life of ~14 minutes
-- After 1 hour of inactivity, the boost is < 5% of peak — prevents permanent over-ranking
-- Tracked in 1-minute time buckets (sliding window of 60 buckets)
+![Diagnostics Panel](./Screenshot%202026-06-22%20at%2001.40.09.png)
 
-### Batch Writes
+---
 
-- Search submissions buffer in memory, flushed every 10 seconds or at 50 entries
-- Duplicate queries are aggregated (10 searches for "java" = 1 DB write with `$inc: 10`)
-- **Failure trade-off:** If the server crashes before a flush, buffered counts are lost. For production, we'd use a WAL (write-ahead log) or persistent queue.
+## 📊 Performance Report
 
-## Performance
+A detailed performance evaluation was conducted on the running system, analyzing latency distribution, cache hit ratios, and write buffering efficiency.
 
-| Metric | Value |
-|--------|-------|
-| Suggestion latency (cache hit) | ~2-6ms |
-| Suggestion latency (trie lookup) | ~3-15ms |
-| Cache hit rate | Increases with usage (60s TTL) |
-| Dataset size | 333,307 queries |
-| Batch write reduction | Depends on search frequency; typically 60-90% fewer DB writes |
+The comprehensive findings are documented in the separate [PERFORMANCE_REPORT.md](file:///Users/mehulagarwal/Documents/HLD-Project/PERFORMANCE_REPORT.md) file.
 
-## Dataset
+---
 
-**Source:** `unigram_freq.csv` — English word frequencies derived from Google Books Ngram Viewer. Contains 333,333 entries with word and occurrence count.
-
-**Loading:** The `scripts/seed.js` script reads the CSV, filters out single-character and numeric-only entries, and bulk-inserts into PostgreSQL with indexes on `query` and `count`.
+## 📝 Verification & Demonstration Checklist
+- [x] **Ingestion**: 333k unigram query words indexed on Postgres (`idx_queries_query`, `idx_queries_count`).
+- [x] **Prefix Match**: Matches `LOWER(query) LIKE LOWER(prefix%)` instantly.
+- [x] **Debouncing**: React input triggers API queries after a 300ms idle state.
+- [x] **Distributed cache mapping**: Routing verified via `/cache/debug`.
+- [x] **Trending Ranking**: Newly searched terms immediately jump up in suggestions.
+- [x] **Batching logs**: Console logs confirm write reduction during high write bursts.
