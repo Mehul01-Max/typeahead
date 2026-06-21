@@ -31,23 +31,35 @@ router.get('/', async (req, res) => {
       });
     }
 
-    // step 2: cache miss — get from database
-    const dbResults = await db.getTopByPrefix(prefix);
-    let results = dbResults.map(item => ({
-      query: item.query,
-      count: parseInt(item.count, 10)
-    }));
+    // step 2: cache miss — get candidate suggestions
+    // Fetch top 100 queries by count to allow trending items to bubble up
+    const dbResults = await db.getTopByPrefix(prefix, 100);
+    
+    // Get unique queries matching the prefix from the active trending window
+    const recentQueries = trendingTracker.getRecentQueriesByPrefix(prefix);
 
-    // step 3: apply trending scores
-    results = results.map(item => {
-      const trendingScore = trendingTracker.getTrendingScore(item.query, item.count);
-      return { ...item, trendingScore };
-    });
+    // Merge database candidates and recent in-memory candidates
+    const candidateMap = new Map();
+    for (const item of dbResults) {
+      candidateMap.set(item.query, parseInt(item.count, 10));
+    }
+    for (const query of recentQueries) {
+      if (!candidateMap.has(query)) {
+        candidateMap.set(query, 0); // initial count 0 for queries not yet flushed or in top 100
+      }
+    }
 
-    // re-sort by trending score
+    // Compute trending scores for all candidates
+    let results = [];
+    for (const [query, count] of candidateMap.entries()) {
+      const trendingScore = trendingTracker.getTrendingScore(query, count);
+      results.push({ query, count, trendingScore });
+    }
+
+    // Sort by trending score in descending order
     results.sort((a, b) => b.trendingScore - a.trendingScore);
 
-    // keep top 10
+    // Keep the top 10 results
     results = results.slice(0, 10);
 
     // step 4: store in cache

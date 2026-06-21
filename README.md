@@ -222,23 +222,27 @@ Every `/search` updates the query counts. Doing synchronous database writes for 
 
 ## 🖼️ Application Screenshots & UI Flow
 
-Below are actual screenshots from the running application:
+Below are screenshots from the running application:
 
 ### 1. Autocomplete Search Box with Keyboard Navigation & Performance Overlay
-Displays instant autocomplete suggestions from the seeded 333k unigram database. It also displays the latency and response source (Cache Hit vs. Database Fallback) in real-time.
+Displays instant autocomplete suggestions from the seeded 333k unigram database. It also displays the latency and cache source in real-time.
 
-![Autocomplete Search and Latency Overlay](./Screenshot%202026-06-22%20at%2001.39.39.png)
+![Autocomplete Search and Latency Overlay](./Screenshot%202026-06-22%20at%2002.24.02.png)
 
 ### 2. Real-time Decay-based Trending Searches Sidebar
-Displays the active trending list. As searches are performed, queries bubble up to the top of the trending panel. This list is dynamically weighted using the time-decay factor:
-$$\text{trending\_score} = \text{base\_count} + \sum (\text{recent\_count} \times e^{-0.05 \times \text{age\_minutes}} \times 10000)$$
+Displays the active trending list. As searches are performed, queries bubble up to the top of the trending panel. This list is dynamically weighted using the time-decay factor.
 
-![Decay-based Trending Sidebar](./Screenshot%202026-06-22%20at%2001.39.49.png)
+![Decay-based Trending Sidebar](./Screenshot%202026-06-22%20at%2002.24.19.png)
 
 ### 3. Integrated Diagnostics & Performance Panel
 Tracks metrics including cache hit rate, p50 and p95 request latencies, and batch writer efficiency (percentage of writes saved via aggregation).
 
-![Diagnostics Panel](./Screenshot%202026-06-22%20at%2001.40.09.png)
+![Diagnostics Panel](./Screenshot%202026-06-22%20at%2002.24.31.png)
+
+### 4. Cache Hashing Ring Routing Diagnostics
+Shows which logical cache node is responsible for the query prefix and outputs the hash ring's virtual node details.
+
+![Cache Routing Debugger](./Screenshot%202026-06-22%20at%2002.25.23.png)
 
 ---
 
@@ -252,7 +256,7 @@ The comprehensive findings are documented in the separate [PERFORMANCE_REPORT.md
 
 ## 📝 Verification & Demonstration Checklist
 - [x] **Ingestion**: 333k unigram query words indexed on Postgres (`idx_queries_query`, `idx_queries_count`).
-- [x] **Prefix Match**: Matches `LOWER(query) LIKE LOWER(prefix%)` instantly.
+- [x] **Prefix Match**: Matches `query LIKE prefix%` instantly using Postgres B-tree index.
 - [x] **Debouncing**: React input triggers API queries after a 300ms idle state.
 - [x] **Distributed cache mapping**: Routing verified via `/cache/debug`.
 - [x] **Trending Ranking**: Newly searched terms immediately jump up in suggestions.

@@ -54,10 +54,10 @@ export async function getTopByPrefix(prefix, limit = 10) {
   const escapedPrefix = escapeForLike(prefix);
   const result = await pool.query(
     `SELECT query, count FROM queries
-     WHERE LOWER(query) LIKE LOWER($1)
+     WHERE query LIKE $1
      ORDER BY count DESC
      LIMIT $2`,
-    [escapedPrefix + '%', limit]
+    [escapedPrefix.toLowerCase() + '%', limit]
   );
   return result.rows;
 }

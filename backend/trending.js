@@ -57,6 +57,19 @@ export default class TrendingTracker {
     return baseCount + recentBoost;
   }
 
+  // get all unique queries currently in the trending buckets matching a prefix
+  getRecentQueriesByPrefix(prefix) {
+    const matching = new Set();
+    for (const bucket of this.buckets) {
+      for (const query of bucket.counts.keys()) {
+        if (query.startsWith(prefix)) {
+          matching.add(query);
+        }
+      }
+    }
+    return Array.from(matching);
+  }
+
   // get top trending queries (most recent activity)
   getTopTrending(limit = 10) {
     const now = Date.now();

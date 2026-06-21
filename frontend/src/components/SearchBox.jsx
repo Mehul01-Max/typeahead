@@ -135,7 +135,7 @@ function SearchBox({ onSearch }) {
 
       {lastLatency !== null && (
         <div className="latency-info">
-          Response: {lastLatency}ms | Source: {lastSource}
+          Suggestion Latency: {lastLatency}ms | Cache Source: {lastSource}
         </div>
       )}
 
