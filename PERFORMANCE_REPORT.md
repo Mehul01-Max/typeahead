@@ -28,13 +28,13 @@ The diagnostics panel captured the following baseline performance characteristic
 ## 🔎 Deep-Dive Analysis
 
 ### 1. Latency Distribution & Optimization
-The latency profile based on **825 request samples** illustrates a distinct **bimodal distribution**:
+The latency profile based on **130 request samples** illustrates a distinct **bimodal distribution**:
 * **Cache-Hit Path (p50: 1.52 ms)**: Consistent hashing maps prefix requests to their respective cache nodes. These keys are read instantly from memory by Redis. A median retrieval time of **1.52 ms** guarantees near-zero lag autocomplete recommendations as the user types.
 * **Cache-Miss Path (p95: 395.28 ms)**: When queries miss the cache, the server falls back to database lookup. The PostgreSQL index search is optimized by indexing lowercase fields directly (`idx_queries_query`, `idx_queries_count`). Tail latency spikes of **395.28 ms** are primarily caused by Neon serverless cold starts and initial connection overhead, which settle quickly under sustained traffic.
 * **Average Response Latency (Avg: 77.50 ms)**: Reflects a mix of cache hits and index-assisted DB lookups.
 
 ### 2. Cache Hit Rate (40.8%)
-* The distributed Redis cache maintains a **40.8% hit rate** across 825 samples.
+* The distributed Redis cache maintains a **40.8% hit rate** across 130 samples.
 * As repetitive user searches occur, common prefix keys are served from Redis, reducing PostgreSQL workload.
 * Invalidation logic removes corresponding keys immediately upon search submissions, ensuring that trending score updates are shown to the user on subsequent typing.
 
