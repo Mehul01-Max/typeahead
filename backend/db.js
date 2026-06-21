@@ -74,29 +74,21 @@ export async function upsertQuery(query, countIncrement = 1) {
 }
 
 // batch upsert multiple queries at once (used by batch writer)
+// single multi-row INSERT ... ON CONFLICT in one SQL round-trip
 export async function batchUpsert(entries) {
   // entries: [{query, count}]
-  if (entries.length === 0) return { modifiedCount: 0 };
+  if (entries.length === 0) return;
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    for (const { query, count } of entries) {
-      await client.query(
-        `INSERT INTO queries (query, count, last_searched_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (query)
-         DO UPDATE SET count = queries.count + $2, last_searched_at = NOW()`,
-        [query, count]
-      );
-    }
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  const queries = entries.map(e => e.query);
+  const counts = entries.map(e => e.count);
+
+  await pool.query(
+    `INSERT INTO queries (query, count, last_searched_at)
+     SELECT unnest($1::text[]), unnest($2::bigint[]), NOW()
+     ON CONFLICT (query)
+     DO UPDATE SET count = queries.count + EXCLUDED.count, last_searched_at = NOW()`,
+    [queries, counts]
+  );
 }
 
 // load all queries (for building trie at startup)

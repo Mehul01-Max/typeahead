@@ -61,3 +61,25 @@ trendingTracker.start();
 app.listen(PORT, () => {
   console.log(`listening to port ${PORT}`);
 });
+
+// graceful shutdown — flush pending writes before exiting
+async function shutdown(signal) {
+  console.log(`\n[Shutdown] Received ${signal}, flushing pending writes...`);
+  batchWriter.stop();
+  trendingTracker.stop();
+
+  try {
+    await batchWriter.flush();
+    console.log('[Shutdown] Batch writer flushed successfully');
+  } catch (err) {
+    console.error('[Shutdown] Batch writer flush failed:', err.message);
+  }
+
+  await cache.close();
+  await db.close();
+  console.log('[Shutdown] Cleanup complete, exiting');
+  process.exit(0);
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

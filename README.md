@@ -67,7 +67,6 @@ The architecture is designed to handle high-throughput reads (typeahead queries)
 │   ├── cache.js                     # Cache controller with consistent hashing integration
 │   ├── consistentHash.js            # Custom consistent hashing ring class
 │   ├── db.js                        # PostgreSQL database pool config and query models
-│   ├── docker-compose.yml           # Redis container setup
 │   ├── env.js                       # Environment variable loader
 │   ├── index.js                     # Server entry point
 │   ├── logger.js                    # Custom latency tracker middleware
@@ -84,17 +83,10 @@ The architecture is designed to handle high-throughput reads (typeahead queries)
 
 ### Prerequisites
 - **Node.js** (v18+)
-- **Docker** (for Redis cache container)
 - **PostgreSQL** instance (Local or cloud hosted e.g. Neon DB)
+- **Redis** instance (Local or cloud hosted)
 
-### 1. Database & Cache Infrastructure
-Start the Redis cache service using Docker:
-```bash
-cd backend
-docker compose up -d
-```
-
-### 2. Backend Server Setup
+### 1. Backend Server Setup
 Configure the environment variables:
 ```bash
 cp .env.example .env
@@ -103,14 +95,14 @@ Edit the `.env` file with your credentials:
 ```env
 PORT=3000
 DATABASE_URL=postgresql://<user>:<password>@<host>/<dbname>?sslmode=require
-REDIS_URL=redis://localhost:6379
+REDIS_URL=redis://<host>:<port>
 BATCH_FLUSH_INTERVAL_MS=10000
 BATCH_MAX_BUFFER_SIZE=50
 CACHE_TTL_SECONDS=60
 CACHE_NODE_COUNT=3
 ```
 
-Install backend dependencies and seed the database with the dataset (~333,307 queries loaded):
+Install backend dependencies and seed the database with the dataset. The system uses the **Kaggle English Word Frequency dataset** (which is compiled from the Google Web Trillion Word Corpus and contains ~333,307 unique unigram queries with search frequencies):
 ```bash
 npm install
 npm run seed

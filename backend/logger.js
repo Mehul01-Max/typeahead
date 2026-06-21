@@ -2,9 +2,11 @@ const latencies = [];
 const MAX_SAMPLES = 1000; // keep last 1000 measurements
 
 export function logRequest(method, path, durationMs, extra = {}) {
-  latencies.push(durationMs);
-  if (latencies.length > MAX_SAMPLES) {
-    latencies.shift();
+  if (extra.isSuggest) {
+    latencies.push(durationMs);
+    if (latencies.length > MAX_SAMPLES) {
+      latencies.shift();
+    }
   }
 
   const logLine = `[${new Date().toISOString()}] ${method} ${path} ${durationMs.toFixed(1)}ms`;
@@ -40,7 +42,8 @@ export function timingMiddleware(req, res, next) {
   res.on('finish', () => {
     const end = process.hrtime.bigint();
     const durationMs = Number(end - start) / 1e6;
-    logRequest(req.method, req.originalUrl, durationMs);
+    const isSuggest = req.originalUrl.startsWith('/suggest');
+    logRequest(req.method, req.originalUrl, durationMs, { isSuggest });
   });
 
   next();

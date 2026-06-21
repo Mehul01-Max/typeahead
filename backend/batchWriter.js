@@ -8,6 +8,7 @@ export default class BatchWriter {
   constructor() {
     this.buffer = new Map();  // query -> pending count
     this.flushTimer = null;
+    this.flushing = false;    // guard against concurrent flushes
 
     // stats
     this.totalSearches = 0;
@@ -25,6 +26,7 @@ export default class BatchWriter {
   stop() {
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
+      this.flushTimer = null;
     }
   }
 
@@ -35,7 +37,7 @@ export default class BatchWriter {
     this.buffer.set(query, current + 1);
 
     // flush if buffer is large enough
-    if (this.buffer.size >= MAX_BUFFER_SIZE) {
+    if (this.buffer.size >= MAX_BUFFER_SIZE && !this.flushing) {
       console.log(`[BatchWriter] Buffer full (${this.buffer.size} entries), flushing early`);
       this.flush();
     }
@@ -43,14 +45,19 @@ export default class BatchWriter {
 
   // write all buffered counts to Database in one bulk operation
   async flush() {
-    if (this.buffer.size === 0) return;
+    if (this.buffer.size === 0 || this.flushing) return;
+
+    // snapshot and clear buffer atomically (synchronous)
+    // new searches arriving during the async DB write go into a fresh buffer
+    this.flushing = true;
+    const snapshot = new Map(this.buffer);
+    this.buffer.clear();
 
     const entries = [];
-    for (const [query, count] of this.buffer) {
+    for (const [query, count] of snapshot) {
       entries.push({ query, count });
     }
 
-    const bufferedQueries = this.buffer.size;
     const totalBufferedCount = entries.reduce((sum, e) => sum + e.count, 0);
 
     try {
@@ -65,15 +72,19 @@ export default class BatchWriter {
       }
 
       console.log(
-        `[BatchWriter] Flushed: ${bufferedQueries} unique queries, ` +
+        `[BatchWriter] Flushed: ${snapshot.size} unique queries, ` +
         `${totalBufferedCount} total searches → ${entries.length} DB writes ` +
         `(saved ${totalBufferedCount - entries.length} writes by aggregation)`
       );
-
-      this.buffer.clear();
     } catch (err) {
       console.error('[BatchWriter] Flush failed:', err.message);
-      // keep buffer intact so we can retry next cycle
+      // re-merge snapshot back into buffer so data is not lost
+      for (const [query, count] of snapshot) {
+        const current = this.buffer.get(query) || 0;
+        this.buffer.set(query, current + count);
+      }
+    } finally {
+      this.flushing = false;
     }
   }
 

@@ -14,7 +14,7 @@ The diagnostics panel captured the following baseline performance characteristic
 | | Cache Hits | **53** | Prefix requests served directly from Redis. |
 | | Cache Misses | **77** | Prefix requests falling back to PostgreSQL. |
 | **Latency Profile** | p50 (Median) | **1.52 ms** | Cache-hit retrieval speed from Redis ring. |
-| (825 samples) | p95 (Tail) | **395.28 ms** | Neon Serverless DB latency / index loading spikes. |
+| (130 samples) | p95 (Tail) | **395.28 ms** | Neon Serverless DB latency / index loading spikes. |
 | | Average | **77.50 ms** | Average response latency across all query paths. |
 | **Batch Writer** | Searches Received | **48** | User query submissions. |
 | | DB Writes | **26** | Bulk upsert write batches to PostgreSQL. |

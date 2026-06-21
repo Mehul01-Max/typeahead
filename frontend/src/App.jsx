@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import SearchBox from './components/SearchBox';
 import TrendingSection from './components/TrendingSection';
 import StatsPanel from './components/StatsPanel';
@@ -62,7 +62,7 @@ function App() {
                 <p className="error">{searchResult.error}</p>
               ) : (
                 <p className="success">
-                  ✓ Searched for "<strong>{searchResult.query}</strong>" — {searchResult.message}
+                  ✓ Searched for &ldquo;<strong>{searchResult.query}</strong>&rdquo; &mdash; {searchResult.message}
                 </p>
               )}
             </div>

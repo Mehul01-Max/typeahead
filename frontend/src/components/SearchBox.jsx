@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -18,6 +18,7 @@ function SearchBox({ onSearch }) {
   const [showDropdown, setShowDropdown] = useState(false);
   const [lastLatency, setLastLatency] = useState(null);
   const [lastSource, setLastSource] = useState(null);
+  const [error, setError] = useState(null);
 
   const inputRef = useRef(null);
   const debounceTimer = useRef(null);
@@ -27,21 +28,28 @@ function SearchBox({ onSearch }) {
     if (!prefix || prefix.length < 1) {
       setSuggestions([]);
       setShowDropdown(false);
+      setError(null);
       return;
     }
 
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/suggest?q=${encodeURIComponent(prefix)}`);
+      if (!res.ok) {
+        throw new Error(`HTTP error ${res.status}`);
+      }
       const data = await res.json();
       setSuggestions(data.suggestions || []);
       setLastLatency(data.latencyMs);
       setLastSource(data.source);
       setShowDropdown(true);
       setSelectedIndex(-1);
+      setError(null);
     } catch (err) {
       console.error('Suggestion fetch failed:', err);
       setSuggestions([]);
+      setError('Failed to load suggestions. Is the server running?');
+      setShowDropdown(false);
     } finally {
       setLoading(false);
     }
@@ -136,6 +144,12 @@ function SearchBox({ onSearch }) {
       {lastLatency !== null && (
         <div className="latency-info">
           Suggestion Latency: {lastLatency}ms | Cache Source: {lastSource}
+        </div>
+      )}
+
+      {error && (
+        <div className="suggestion-error" style={{ color: '#ff4d4d', fontSize: '0.85rem', marginTop: '0.5rem', fontWeight: '500' }}>
+          ⚠️ {error}
         </div>
       )}
 

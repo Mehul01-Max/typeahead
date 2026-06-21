@@ -2,6 +2,7 @@ import express from 'express';
 import * as db from '../db.js';
 import cache from '../cache.js';
 import { trendingTracker } from '../trending.js';
+import { batchWriter } from '../batchWriter.js';
 
 const router = express.Router();
 
@@ -41,11 +42,13 @@ router.get('/', async (req, res) => {
     // Merge database candidates and recent in-memory candidates
     const candidateMap = new Map();
     for (const item of dbResults) {
-      candidateMap.set(item.query, parseInt(item.count, 10));
+      const pendingCount = batchWriter.buffer.get(item.query) || 0;
+      candidateMap.set(item.query, parseInt(item.count, 10) + pendingCount);
     }
     for (const query of recentQueries) {
       if (!candidateMap.has(query)) {
-        candidateMap.set(query, 0); // initial count 0 for queries not yet flushed or in top 100
+        const pendingCount = batchWriter.buffer.get(query) || 0;
+        candidateMap.set(query, pendingCount); // initial count is just the pending count
       }
     }
 

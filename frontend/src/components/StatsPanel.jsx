@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -25,7 +25,7 @@ function StatsPanel() {
       const data = await res.json();
       setStats(data);
     } catch (err) {
-      // server might not be running yet
+      console.warn('[StatsPanel] Server not running or stats unavailable:', err.message);
     }
   }
 
